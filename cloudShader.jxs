@@ -1,0 +1,125 @@
+<jittershader name="Connect_Close_Vertices">
+	<description>Default Connect Close Vertices </description>
+
+	<param name="position" type="vec3" state="POSITION" />
+	<param name="modelViewProjectionMatrix" type="mat4" state="MODELVIEW_PROJECTION_MATRIX" />
+	<param name="color" type="vec4" state="COLOR" />
+
+	<param name="posBuffer" type="int" default="0" />
+	<param name="distThreshold" type="float" default="0.1" />
+	<param name="population" type="int" default="1000" />
+
+	<language name="glsl" version="1.5">
+
+		<bind param="position" program="vp" />
+		<bind param="modelViewProjectionMatrix" program="vp" />
+		<bind param="color" program="vp" />
+
+		<bind param="posBuffer" program="vp" />
+		<bind param="distThreshold" program="vp" />
+		<bind param="population" program="vp" />
+
+		<program name="vp" type="vertex">
+<![CDATA[
+#version 330 core
+
+uniform mat4 modelViewProjectionMatrix;
+in vec3 position;
+in vec4 color;
+
+uniform samplerBuffer posBuffer;
+uniform float distThreshold;
+uniform int population;
+
+const int arrayLength = 6;
+
+out jit_PerVertex {
+	flat vec4 color;
+	flat vec4 closeParticlePosition[6];	
+} jit_out;
+
+void main() {	
+	int iterations = population;
+
+	gl_Position = modelViewProjectionMatrix * vec4(position, 1.);	
+	jit_out.color = color;
+
+	// initialize close particles position to this particle position
+	for (int i=0; i<arrayLength; i++)
+	{
+		jit_out.closeParticlePosition[i] = modelViewProjectionMatrix * vec4(position, 1.);
+	}
+
+	int counter = 0;
+	for (int i=gl_VertexID+1; i<iterations; i++)
+	{
+		vec3 otherPosition = texelFetch(posBuffer, i).xyz;
+
+		float dist = length(position - otherPosition);
+
+		if (dist < distThreshold)
+		{
+			jit_out.closeParticlePosition[counter] = modelViewProjectionMatrix * vec4(otherPosition, 1.);
+			counter++; // increment by 1
+			if (counter >= arrayLength)
+			{
+				break;
+			}
+		}
+	}
+}
+]]>
+		</program>
+		<program name="gp" type="geometry">
+<![CDATA[
+#version 330 core
+
+layout (points) in;
+layout (line_strip, max_vertices=12) out;
+
+const int arrayLength = 6;
+
+in jit_PerVertex {
+	flat vec4 color;	
+	flat vec4 closeParticlePosition[arrayLength];	
+} jit_in[];
+
+out jit_PerVertex {
+	flat vec4 color;	
+};
+
+void main() {
+	for (int i = 0; i<arrayLength; i++)
+	{
+		gl_Position = gl_in[0].gl_Position;
+		color = jit_in[0].color;
+		EmitVertex();
+
+		gl_Position = jit_in[0].closeParticlePosition[i];
+		color = jit_in[0].color;
+		EmitVertex();
+	
+		EndPrimitive();
+	}
+
+}
+]]>
+		</program>
+		<program name="fp" type="fragment">
+<![CDATA[
+#version 330 core
+
+in jit_PerVertex {
+	flat vec4 color;
+} jit_in;
+
+out vec4 color;
+
+void main() {
+	color = jit_in.color;
+
+}	
+]]>
+		</program>
+	</language>
+</jittershader>
